@@ -4,10 +4,16 @@
   // ---------------------------------------------------------------------
   // Config — the real, published Google Sheet (2026 Los zonder Pan).
   // ---------------------------------------------------------------------
-  const PESO_CSV_URL = 'https://docs.google.com/spreadsheets/d/1UKDMQRqxUHf2N2WjsH-DvycF5iTGk7YASMDvRhcv2aU/gviz/tq?tqx=out:csv&sheet=Peso';
-  const ESTRATEGIA_CSV_URL = 'https://docs.google.com/spreadsheets/d/1UKDMQRqxUHf2N2WjsH-DvycF5iTGk7YASMDvRhcv2aU/gviz/tq?tqx=out:csv&sheet=Estrategia';
+  const PESO_CSV_URL = 'https://docs.google.com/spreadsheets/d/e/2PACX-1vTprR8xiDh_GVTYpzcd8IP0ad5XcWO_3yFha7reT9MF4ZbvSQnOWdq55NEiw0OaYGV2DHLjdqtxZeFp/pub?gid=0&single=true&output=csv';
+  const ESTRATEGIA_CSV_URL = 'https://docs.google.com/spreadsheets/d/e/2PACX-1vTprR8xiDh_GVTYpzcd8IP0ad5XcWO_3yFha7reT9MF4ZbvSQnOWdq55NEiw0OaYGV2DHLjdqtxZeFp/pub?gid=1922047679&single=true&output=csv';
   const SHOW_BAND = true;
   const REGRESSION_TRUST = 0.5;
+
+  const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+  const prettyDate = (s) => {
+    const m = String(s || '').trim().match(/^(\d{1,2})\/(\d{1,2})(?:\/(\d{2,4}))?$/);
+    return m ? m[1] + ' ' + (MONTHS[parseInt(m[2], 10) - 1] || '') : String(s || '');
+  };
 
   // ---------------------------------------------------------------------
   // 30 Aug snapshot — used until the live sheet loads, and as a fallback
@@ -20,7 +26,7 @@
     toLose: { Diego: 10.2, Paty: 6.5, Cristhian: 5.2 },
     weeks: [
       { w: 0, date: '22/8', v: { Diego: 95.2, Paty: 66.5, Cristhian: 67.2 } },
-      { w: 1, date: '29/8', v: { Diego: 95.9, Paty: 65.8, Cristhian: 67.1 } },
+      { w: 1, date: '29/8', v: { Diego: 95.9, Paty: 65.8, Cristhian: 66.8 } },
       { w: 2, date: '5/9', v: {} },
       { w: 3, date: '12/9', v: {} },
       { w: 4, date: '19/9', v: {} },
@@ -165,7 +171,7 @@
   class App {
     constructor(root) {
       this.root = root;
-      this.state = { tab: 'participant', sel: 0, data: null, live: false, newEntry: false, newEntryText: '', source: 'snapshot' };
+      this.state = { tab: 'participant', sel: 0, data: null, live: false, newEntry: false, newEntryKind: 'new', newEntryText: '', source: 'snapshot', loading: false, liveStrategies: false };
       this.root.addEventListener('click', (e) => this.onClick(e));
       this.render();
       this.load();
@@ -186,26 +192,43 @@
         this.setState({ tab: el.getAttribute('data-tab') });
       } else if (action === 'dismiss') {
         this.setState({ newEntry: false });
+      } else if (action === 'retry') {
+        this.load();
       }
     }
 
+    // Direct fetch first; if that fails (network hiccup, a strict CORS
+    // response, etc), retry once through a public CORS proxy so the read
+    // still succeeds outside of trusted/first-party contexts.
+    async fetchText(url) {
+      const routes = [url, 'https://api.codetabs.com/v1/proxy?quest=' + encodeURIComponent(url)];
+      let err = null;
+      for (let i = 0; i < routes.length; i++) {
+        try {
+          const res = await fetch(routes[i], { cache: 'no-store' });
+          if (!res.ok) throw new Error('http ' + res.status);
+          const text = await res.text();
+          if (text && text.indexOf('Parametro') === -1 && text.indexOf('Jornada') === -1 && text.indexOf('week') === -1) throw new Error('unexpected body');
+          return text;
+        } catch (e) { err = e; }
+      }
+      throw err || new Error('unreachable');
+    }
+
     async load() {
+      this.setState({ loading: true });
       try {
-        const res = await fetch(PESO_CSV_URL, { cache: 'no-store' });
-        if (!res.ok) throw new Error('http ' + res.status);
-        const rows = parseCSV(await res.text());
+        const rows = parseCSV(await this.fetchText(PESO_CSV_URL));
         const data = this.readPeso(rows);
         if (!data) throw new Error('layout');
         let strategies = null;
-        try {
-          const r2 = await fetch(ESTRATEGIA_CSV_URL, { cache: 'no-store' });
-          if (r2.ok) strategies = this.readEstrategia(parseCSV(await r2.text()));
-        } catch (e) { /* keep snapshot strategies */ }
+        try { strategies = this.readEstrategia(parseCSV(await this.fetchText(ESTRATEGIA_CSV_URL))); }
+        catch (e) { /* keep snapshot strategies */ }
         if (strategies) data.strategies = strategies;
-        this.setState({ data, live: true, source: 'live' });
+        this.setState({ data, live: true, source: 'live', loading: false, liveStrategies: !!strategies });
         this.checkNew(data);
       } catch (e) {
-        this.setState({ source: 'snapshot' });
+        this.setState({ source: 'snapshot', loading: false });
       }
     }
 
@@ -260,7 +283,7 @@
         const desc = (r[3] || '').trim();
         if (n != null && code && desc) {
           const base = STRAT[out.length] || {};
-          out.push({ code, date: (r[1] || '').trim(), en: base.en || desc, es: desc, d1: base.d1 || '', d2: base.d2 || '', d3: base.d3 || '' });
+          out.push({ code, date: prettyDate(r[1]), en: base.en || desc, es: desc, d1: base.d1 || '', d2: base.d2 || '', d3: base.d3 || '' });
         }
       });
       return out.length ? out : null;
@@ -272,10 +295,10 @@
       let seen = -1;
       try { seen = parseInt(localStorage.getItem('lzp:lastWeek') || '-1', 10); } catch (e) { seen = -1; }
       if (last > seen) {
-        const n = data.weeks.filter((w) => w.w === last)[0];
-        const count = Object.keys(n.v).length;
         try { localStorage.setItem('lzp:lastWeek', String(last)); } catch (e) { /* ignore */ }
-        if (seen >= 0) this.setState({ newEntry: true, newEntryText: 'Week ' + last + ' is in — ' + count + ' new weights read from the sheet. The participants would be mailed here.' });
+        this.setState({ newEntry: true, newEntryKind: 'new', newEntryText: 'New data set available' });
+      } else {
+        this.setState({ newEntry: false, newEntryKind: 'none', newEntryText: '' });
       }
     }
 
@@ -436,9 +459,21 @@
         weekLabel: 'Week ' + curIdx + ' of 7',
         newEntry: this.state.newEntry,
         newEntryText: this.state.newEntryText,
-        sourceLine: this.state.source === 'live'
-          ? 'Read live from 2026 Los zonder Pan · sheet Peso'
-          : 'Offline snapshot of 2026 Los zonder Pan (Peso, 30 Aug). Reconnect to fetch the live sheet.',
+        bannerStyle: {
+          margin: '0 16px 10px', flex: 'none', display: 'flex', alignItems: 'flex-start', gap: 10,
+          padding: '10px 14px', borderRadius: 8,
+          border: '1px solid ' + (this.state.newEntryKind === 'new' ? 'rgba(13,148,136,.5)' : 'rgba(255,255,255,.12)'),
+          background: this.state.newEntryKind === 'new' ? 'rgba(13,148,136,.14)' : 'rgba(255,255,255,.04)'
+        },
+        bannerDotStyle: {
+          width: 6, height: 6, borderRadius: 9999, flex: 'none', marginTop: 5,
+          background: this.state.newEntryKind === 'new' ? '#2dd4bf' : 'rgba(255,255,255,.3)'
+        },
+        sourceLine: this.state.loading
+          ? 'Reading 2026 Los zonder Pan…'
+          : this.state.source === 'live'
+            ? 'Read live from 2026 Los zonder Pan · sheet Peso' + (this.state.liveStrategies ? ' · sheet Estrategia' : '')
+            : 'Offline snapshot of 2026 Los zonder Pan (Peso, 30 Aug). The live read failed — tap Refresh to try again.',
         projMethodLine: 'Least-squares trend through every entry so far, pulled toward the pace needed to reach each target. The band widens as the estimate reaches further out.',
         strategies: strategies.map((s, i) => {
           const isNow = i === curIdx;
@@ -472,13 +507,13 @@
 
       const header =
         '<div style="display:flex;align-items:baseline;justify-content:space-between;padding:6px 20px 12px;flex:none">' +
-          '<div style="font-size:14px;letter-spacing:-0.2px;font-weight:300;color:rgba(255,255,255,.92)">los <span style="font-weight:400">ZonderPan</span> de Peniche</div>' +
+          '<div style="font-size:18px;letter-spacing:-0.4px;font-weight:400;color:#ffffff">los <span style="font-weight:600">ZonderPan</span> de Peniche</div>' +
           '<div style="font-size:10px;font-weight:400;letter-spacing:1px;text-transform:uppercase;color:rgba(255,255,255,.42)">' + esc(vm.weekLabel) + '</div>' +
         '</div>';
 
       const banner = vm.newEntry
-        ? '<div style="margin:0 16px 10px;flex:none;display:flex;align-items:center;gap:10px;padding:10px 14px;border:1px solid rgba(13,148,136,.5);background:rgba(13,148,136,.14);border-radius:8px">' +
-            '<div style="width:6px;height:6px;border-radius:9999px;background:#2dd4bf;flex:none"></div>' +
+        ? '<div style="' + css(vm.bannerStyle) + '">' +
+            '<div style="' + css(vm.bannerDotStyle) + '"></div>' +
             '<div style="font-size:11.5px;line-height:1.45;color:rgba(255,255,255,.82)">' + esc(vm.newEntryText) + '</div>' +
             '<button data-action="dismiss" style="margin-left:auto;flex:none;border:0;background:transparent;color:rgba(255,255,255,.45);font:400 10px/1 Inter,system-ui,sans-serif;letter-spacing:.6px;text-transform:uppercase;cursor:pointer;padding:4px">Dismiss</button>' +
           '</div>'
@@ -541,7 +576,7 @@
                 '<div style="' + css(sel.progressStyle) + '"></div>' +
               '</div>' +
               "<div style=\"display:flex;justify-content:space-between;margin-top:7px;font-size:10.5px;color:#6b7280;font-feature-settings:'tnum'\">" +
-                '<span>' + sel.lostStr + ' lost</span>' +
+                '<span>' + sel.lostStr + ' since week 0</span>' +
                 '<span>' + sel.remainStr + ' to target</span>' +
               '</div>' +
             '</div>' +
@@ -575,7 +610,10 @@
             '<div style="display:flex;gap:6px;margin-top:12px;align-items:flex-end;height:56px">' + bars + '</div>' +
           '</div>' +
 
-          '<div style="font-size:10.5px;line-height:1.6;color:rgba(255,255,255,.34)">' + esc(vm.sourceLine) + '</div>' +
+          '<div style="display:flex;align-items:flex-start;gap:10px">' +
+            '<div style="font-size:10.5px;line-height:1.6;color:rgba(255,255,255,.34);flex:1">' + esc(vm.sourceLine) + '</div>' +
+            '<button data-action="retry" style="flex:none;border:1px solid rgba(255,255,255,.14);background:transparent;color:rgba(255,255,255,.55);font:400 9.5px/1 Inter,system-ui,sans-serif;letter-spacing:.8px;text-transform:uppercase;padding:8px 12px;border-radius:9999px;cursor:pointer">Refresh</button>' +
+          '</div>' +
         '</div>'
       );
     }
