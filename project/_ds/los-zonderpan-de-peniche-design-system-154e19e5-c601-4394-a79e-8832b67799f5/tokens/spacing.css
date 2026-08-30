@@ -1,0 +1,9 @@
+:root{
+--space-xxs:2px;--space-xs:4px;--space-sm:8px;--space-md:12px;--space-lg:16px;--space-xl:24px;--space-xxl:32px;--space-huge:64px;
+--section-pad-y:96px;--section-pad-y-tight:64px;--section-pad-x:24px;
+--app-pad:32px;--app-pad-lg:48px;
+--card-pad:32px;--card-pad-mockup:24px;
+--container-max:1200px;
+--control-pad-y:8px;--control-pad-x:16px;--input-pad-y:8px;--input-pad-x:12px;
+--control-min-h:40px;--control-min-h-touch:44px;
+}

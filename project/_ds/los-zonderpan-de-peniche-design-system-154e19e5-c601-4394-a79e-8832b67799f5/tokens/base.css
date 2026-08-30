@@ -1,0 +1,6 @@
+html{-webkit-font-smoothing:antialiased}
+body{margin:0;background:var(--surface-page);color:var(--text-body);font:var(--weight-thin) var(--body-md-size)/var(--body-md-lh) var(--font-core);font-feature-settings:"ss01"}
+a{color:var(--text-link);text-decoration:none}
+a:hover{color:var(--primary-deep);text-decoration:none}
+*,*::before,*::after{box-sizing:border-box}
+::selection{background:var(--primary-bg-subdued-hover);color:var(--primary-press)}

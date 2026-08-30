@@ -1,0 +1,74 @@
+:root{
+--font-sans:'Inter Variable',system-ui,sans-serif; /* @kind font */
+--font-core:var(--font-sans); /* @kind font */
+--font-display:var(--font-sans); /* @kind font */
+
+--weight-thin:300; /* @kind font */
+--weight-regular:400; /* @kind font */
+
+/* display */
+--display-xxl-size:56px; /* @kind font */
+--display-xxl-lh:1.03; /* @kind font */
+--display-xxl-ls:-1.4px; /* @kind font */
+--display-xl-size:48px; /* @kind font */
+--display-xl-lh:1.15; /* @kind font */
+--display-xl-ls:-0.96px; /* @kind font */
+--display-lg-size:32px; /* @kind font */
+--display-lg-lh:1.1; /* @kind font */
+--display-lg-ls:-0.64px; /* @kind font */
+--display-md-size:26px; /* @kind font */
+--display-md-lh:1.12; /* @kind font */
+--display-md-ls:-0.26px; /* @kind font */
+/* headings */
+--heading-lg-size:22px; /* @kind font */
+--heading-lg-lh:1.1; /* @kind font */
+--heading-lg-ls:-0.22px; /* @kind font */
+--heading-md-size:20px; /* @kind font */
+--heading-md-lh:1.4; /* @kind font */
+--heading-md-ls:-0.2px; /* @kind font */
+--heading-sm-size:18px; /* @kind font */
+--heading-sm-lh:1.4; /* @kind font */
+--heading-sm-ls:0; /* @kind font */
+/* body */
+--body-lg-size:16px; /* @kind font */
+--body-lg-lh:1.4; /* @kind font */
+--body-lg-ls:0; /* @kind font */
+--body-md-size:15px; /* @kind font */
+--body-md-lh:1.4; /* @kind font */
+--body-md-ls:0; /* @kind font */
+--body-tabular-size:14px; /* @kind font */
+--body-tabular-lh:1.4; /* @kind font */
+--body-tabular-ls:-0.42px; /* @kind font */
+/* controls & fine print */
+--button-md-size:16px; /* @kind font */
+--button-md-lh:1; /* @kind font */
+--button-md-ls:0; /* @kind font */
+--button-sm-size:14px; /* @kind font */
+--button-sm-lh:1; /* @kind font */
+--button-sm-ls:0; /* @kind font */
+--caption-size:13px; /* @kind font */
+--caption-lh:1.4; /* @kind font */
+--caption-ls:-0.39px; /* @kind font */
+--micro-size:11px; /* @kind font */
+--micro-lh:1.4; /* @kind font */
+--micro-ls:0; /* @kind font */
+--micro-cap-size:10px; /* @kind font */
+--micro-cap-lh:1.15; /* @kind font */
+--micro-cap-ls:0.1px; /* @kind font */
+
+}
+
+.lz-display-xxl{font:var(--weight-thin) var(--display-xxl-size)/var(--display-xxl-lh) var(--font-display);letter-spacing:var(--display-xxl-ls);font-feature-settings:"ss01"}
+.lz-display-xl{font:var(--weight-thin) var(--display-xl-size)/var(--display-xl-lh) var(--font-display);letter-spacing:var(--display-xl-ls);font-feature-settings:"ss01"}
+.lz-display-lg{font:var(--weight-thin) var(--display-lg-size)/var(--display-lg-lh) var(--font-display);letter-spacing:var(--display-lg-ls);font-feature-settings:"ss01"}
+.lz-display-md{font:var(--weight-thin) var(--display-md-size)/var(--display-md-lh) var(--font-display);letter-spacing:var(--display-md-ls);font-feature-settings:"ss01"}
+.lz-heading-lg{font:var(--weight-thin) var(--heading-lg-size)/var(--heading-lg-lh) var(--font-core);letter-spacing:var(--heading-lg-ls);font-feature-settings:"ss01"}
+.lz-heading-md{font:var(--weight-thin) var(--heading-md-size)/var(--heading-md-lh) var(--font-core);letter-spacing:var(--heading-md-ls);font-feature-settings:"ss01"}
+.lz-heading-sm{font:var(--weight-thin) var(--heading-sm-size)/var(--heading-sm-lh) var(--font-core);letter-spacing:var(--heading-sm-ls);font-feature-settings:"ss01"}
+.lz-body-lg{font:var(--weight-thin) var(--body-lg-size)/var(--body-lg-lh) var(--font-core);letter-spacing:var(--body-lg-ls)}
+.lz-body-md{font:var(--weight-thin) var(--body-md-size)/var(--body-md-lh) var(--font-core);letter-spacing:var(--body-md-ls)}
+.lz-body-tabular{font:var(--weight-thin) var(--body-tabular-size)/var(--body-tabular-lh) var(--font-core);letter-spacing:var(--body-tabular-ls);font-feature-settings:"tnum"}
+.lz-caption{font:var(--weight-regular) var(--caption-size)/var(--caption-lh) var(--font-core);letter-spacing:var(--caption-ls);font-feature-settings:"tnum"}
+.lz-micro{font:var(--weight-thin) var(--micro-size)/var(--micro-lh) var(--font-core);letter-spacing:var(--micro-ls)}
+.lz-micro-cap{font:var(--weight-regular) var(--micro-cap-size)/var(--micro-cap-lh) var(--font-core);letter-spacing:var(--micro-cap-ls);text-transform:uppercase}
+.lz-tnum{font-feature-settings:"tnum"}

@@ -1,0 +1,5 @@
+/* Inter Variable. No font binaries were supplied with the brand material, so the
+   webfont is loaded from Google Fonts (Inter variable, 100–900). See readme.md
+   → "Font substitution". Replace these @font-face srcs with local files when the
+   licensed Inter Variable binaries are available. */
+@font-face{font-family:'Inter Variable';font-style:normal;font-weight:100 900;font-display:swap;src:url("https://fonts.gstatic.com/s/inter/v19/UcCO3FwrK3iLTeHuS_nVMrMxCp50SjIw2boKoduKmMEVuLyfMZhrib2Bg-4.woff2") format("woff2")}
