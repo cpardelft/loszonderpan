@@ -1,0 +1,716 @@
+(() => {
+  'use strict';
+
+  // ---------------------------------------------------------------------
+  // Config — the real, published Google Sheet (2026 Los zonder Pan).
+  // ---------------------------------------------------------------------
+  const PESO_CSV_URL = 'https://docs.google.com/spreadsheets/d/1UKDMQRqxUHf2N2WjsH-DvycF5iTGk7YASMDvRhcv2aU/gviz/tq?tqx=out:csv&sheet=Peso';
+  const ESTRATEGIA_CSV_URL = 'https://docs.google.com/spreadsheets/d/1UKDMQRqxUHf2N2WjsH-DvycF5iTGk7YASMDvRhcv2aU/gviz/tq?tqx=out:csv&sheet=Estrategia';
+  const SHOW_BAND = true;
+  const REGRESSION_TRUST = 0.5;
+
+  // ---------------------------------------------------------------------
+  // 30 Aug snapshot — used until the live sheet loads, and as a fallback
+  // if the fetch fails (offline, sheet not published, etc).
+  // ---------------------------------------------------------------------
+  const SNAP = {
+    order: ['Diego', 'Paty', 'Cristhian'],
+    heights: { Diego: 180, Paty: 156, Cristhian: 168 },
+    target: { Diego: 85.0, Paty: 60.0, Cristhian: 62.0 },
+    toLose: { Diego: 10.2, Paty: 6.5, Cristhian: 5.2 },
+    weeks: [
+      { w: 0, date: '22/8', v: { Diego: 95.2, Paty: 66.5, Cristhian: 67.2 } },
+      { w: 1, date: '29/8', v: { Diego: 95.9, Paty: 65.8, Cristhian: 67.1 } },
+      { w: 2, date: '5/9', v: {} },
+      { w: 3, date: '12/9', v: {} },
+      { w: 4, date: '19/9', v: {} },
+      { w: 5, date: '26/9', v: {} },
+      { w: 6, date: '3/10', v: {} },
+      { w: 7, date: '10/10', v: {} }
+    ]
+  };
+
+  const STRAT = [
+    { code: 'S1', date: '22 Aug', en: 'No bread, no sugar', es: 'No pan; no azúcar', d1: 'M5.5 8.5h9v9h-9z', d2: 'M3 20.5L21 3.5', d3: 'M17 6.5h3.5V10' },
+    { code: 'S2', date: '29 Aug', en: 'Rice, pasta and potatoes: one third less, smaller portions', es: 'Arroz+pasta+papas: 1/3 menos y porciones más pequeñas', d1: 'M4.5 19V13.5', d2: 'M12 19V9.5', d3: 'M19.5 19V5.5' },
+    { code: 'S3', date: '5 Sep', en: 'Nothing to eat after 22:00', es: 'No comer nada después de las 22:00', d1: 'M20 12a8 8 0 1 1-16 0 8 8 0 0 1 16 0z', d2: 'M12 7.2V12l3.2 2', d3: '' },
+    { code: 'S4', date: '12 Sep', en: 'Walk at least 8,000 steps a day — 40,000 a week', es: 'Caminar por lo menos 8,000 pasos cada día (mínimo 40,000 semanales)', d1: 'M8 4.5c1.9 0 3 1.9 3 4.6 0 2.7-1.1 4.6-3 4.6s-3-1.9-3-4.6C5 6.4 6.1 4.5 8 4.5z', d2: 'M16 10c1.9 0 3 1.9 3 4.6 0 2.7-1.1 4.6-3 4.6s-3-1.9-3-4.6c0-2.7 1.1-4.6 3-4.6z', d3: '' },
+    { code: 'S5', date: '19 Sep', en: 'No cheat days, no cheat meals', es: 'No cheat-days / meals', d1: 'M4.5 6h15v14h-15z', d2: 'M4.5 10.2h15', d3: 'M5.5 20.5L19.5 4.5' },
+    { code: 'S6', date: '26 Sep', en: 'Eat good fats — avocado — and avoid fried food', es: 'Comer buenas grasas (e.g. aguacate) y evitar alimentos fritos', d1: 'M12 3.2c3.9 0 6.8 4 6.8 8.9s-2.9 8.7-6.8 8.7-6.8-3.8-6.8-8.7S8.1 3.2 12 3.2z', d2: 'M14.6 13.4a2.6 2.6 0 1 1-5.2 0 2.6 2.6 0 0 1 5.2 0z', d3: '' },
+    { code: 'S7', date: '3 Oct', en: 'Combine at least three strategies', es: 'Combinar por lo menos 3 estrategias', d1: 'M10.4 8.6a3.9 3.9 0 1 1-7.8 0 3.9 3.9 0 0 1 7.8 0z', d2: 'M21.4 8.6a3.9 3.9 0 1 1-7.8 0 3.9 3.9 0 0 1 7.8 0z', d3: 'M15.9 16.4a3.9 3.9 0 1 1-7.8 0 3.9 3.9 0 0 1 7.8 0z' }
+  ];
+
+  // Kahoot-style geometric avatars, one per participant.
+  const LOOK = {
+    Diego: {
+      color: '#0d9488', color2: '#b45309', tint: '#cdece8', skin: '#f0c9a0',
+      head: 'M32 18c9 0 14 4.8 14 13.8 0 9.6-5.6 15.8-14 15.8s-14-6.2-14-15.8C18 22.8 23 18 32 18z',
+      hat: 'M32 14.6c9 0 14.6 4.9 14.6 12.9-3.8-3.6-8.6-5.4-14.6-5.4s-10.8 1.8-14.6 5.4c0-8 5.6-12.9 14.6-12.9z',
+      hat2: 'M18.4 28.9c3.8-2.8 8.4-4.2 13.6-4.2s9.8 1.4 13.6 4.2v5.4c-3.8-2.6-8.4-3.9-13.6-3.9s-9.8 1.3-13.6 3.9z M45.4 30.6l7-2.8 1.2 4-7.4 2.2z',
+      brow: 'M23.2 28.8c1.8-1.1 3.7-1.4 5.6-.9 M35.2 27.9c1.9-.5 3.8-.2 5.6.9',
+      mouth: 'M25.4 39.4h13.2c0 4.2-3 6.9-6.6 6.9s-6.6-2.7-6.6-6.9z',
+      acc: 'M50.6 20.6c2 2.6 3 4.2 3 5.4a3 3 0 0 1-6 0c0-1.2 1-2.8 3-5.4z',
+      accStroke: ''
+    },
+    Paty: {
+      color: '#db2777', color2: '#b45309', tint: '#f9dbe9', skin: '#f7d7b8',
+      head: 'M32 18.6c8.2 0 13.2 5.4 13.2 14 0 8.8-5.4 15-13.2 15s-13.2-6.2-13.2-15c0-8.6 5-14 13.2-14z',
+      hat: 'M32 12.6c10 0 15.6 6.2 15.6 15 0 3.4-.6 6-1.8 6-1.2 0-1.2-2.8-1.2-6.4 0-5.6-4.8-8.4-12.6-8.4s-12.6 2.8-12.6 8.4c0 3.6 0 6.4-1.2 6.4-1.2 0-1.8-2.6-1.8-6 0-8.8 5.6-15 15.6-15z',
+      hat2: 'M13.6 25.4a5 5 0 1 1 10 0 5 5 0 0 1-10 0z M40.4 25.4a5 5 0 1 1 10 0 5 5 0 0 1-10 0z M26.4 13.4a5.6 5.6 0 1 1 11.2 0 5.6 5.6 0 0 1-11.2 0z M15.6 36a4 4 0 1 1 8 0 4 4 0 0 1-8 0z M40.4 36a4 4 0 1 1 8 0 4 4 0 0 1-8 0z',
+      brow: 'M23.4 28.4c1.8-1.2 3.8-1.4 5.8-.6 M34.8 27.8c2-.8 4-.6 5.8.6',
+      mouth: 'M26.2 40.4c1.7 2.7 3.6 4 5.8 4s4.1-1.3 5.8-4c.9 3.8-2.1 6.5-5.8 6.5s-6.7-2.7-5.8-6.5z',
+      acc: 'M18.6 40.2l1.1 2.4 2.6.3-1.9 1.8.5 2.6-2.3-1.3-2.3 1.3.5-2.6-1.9-1.8 2.6-.3z M45.4 40.2l1.1 2.4 2.6.3-1.9 1.8.5 2.6-2.3-1.3-2.3 1.3.5-2.6-1.9-1.8 2.6-.3z',
+      accStroke: ''
+    },
+    Cristhian: {
+      color: '#b45309', color2: '#0d9488', tint: '#f3e2cd', skin: '#e2b389',
+      head: 'M32 19c9.4 0 14.4 4.8 14.4 13.4 0 9.2-5.8 15-14.4 15s-14.4-5.8-14.4-15C17.6 23.8 22.6 19 32 19z',
+      hat: 'M18.8 27.6C18.8 20 24.6 14.8 32 14.8s13.2 5.2 13.2 12.8z M32 8.8a3.6 3.6 0 1 1 0 7.2 3.6 3.6 0 0 1 0-7.2z',
+      hat2: 'M17.2 27.2h29.6a2.6 2.6 0 0 1 0 5.4H17.2a2.6 2.6 0 0 1 0-5.4z',
+      brow: 'M23.6 29.4c1.8-1 3.8-1.2 5.6-.6 M35 28.8c1.8-.6 3.8-.4 5.6.6',
+      mouth: 'M27 41.2c2 1.9 4.4 2.7 7 2.4 1.9-.2 3.3-.9 4.2-1.8.4 3.4-2.1 5.7-5.4 5.7-3.2 0-5.5-2.3-5.8-6.3z',
+      acc: 'M12.4 33.4h4.6a1.6 1.6 0 0 1 1.6 1.6v6.4a1.6 1.6 0 0 1-1.6 1.6h-4.6z M47 33.4h4.6v9.6H47a1.6 1.6 0 0 1-1.6-1.6V35a1.6 1.6 0 0 1 1.6-1.6z',
+      accStroke: 'M14.6 34c0-9.6 7.8-17.4 17.4-17.4S49.4 24.4 49.4 34'
+    }
+  };
+
+  const WEEK_DATES = ['2026-08-22', '2026-08-29', '2026-09-05', '2026-09-12', '2026-09-19', '2026-09-26', '2026-10-03', '2026-10-10'];
+
+  // ---------------------------------------------------------------------
+  // Small helpers
+  // ---------------------------------------------------------------------
+  const num = (s) => {
+    if (typeof s === 'number') return s;
+    if (!s) return null;
+    let t = String(s).trim().replace(/\s/g, '');
+    if (t === '') return null;
+    if (t.indexOf(',') > -1 && t.indexOf('.') === -1) t = t.replace(',', '.');
+    else t = t.replace(/,/g, '');
+    const v = parseFloat(t);
+    return isFinite(v) ? v : null;
+  };
+  const f1 = (v) => (v == null ? '—' : v.toFixed(1));
+  const bmi = (kg, cm) => kg / Math.pow(cm / 100, 2);
+  const bmiBand = (b) => (b < 18.5 ? ['Underweight', '#6b7280'] : b < 25 ? ['Normal weight', '#0f766e'] : b < 30 ? ['Overweight', '#b45309'] : ['Obese', '#e11d48']);
+
+  function esc(s) {
+    return String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+  }
+
+  const UNITLESS = new Set(['opacity', 'zIndex', 'fontWeight', 'lineHeight', 'flex', 'flexGrow', 'flexShrink', 'order', 'tabSize']);
+  function toKebab(k) { return k.replace(/([a-z0-9])([A-Z])/g, '$1-$2').toLowerCase(); }
+  function css(obj) {
+    if (!obj) return '';
+    return Object.keys(obj).map((k) => {
+      let v = obj[k];
+      if (v == null || v === '') return '';
+      if (typeof v === 'number' && !UNITLESS.has(k)) v = v + 'px';
+      return toKebab(k) + ':' + v;
+    }).filter(Boolean).join(';');
+  }
+
+  function parseCSV(text) {
+    const rows = [];
+    let row = [], cell = '', q = false;
+    for (let i = 0; i < text.length; i++) {
+      const c = text[i];
+      if (q) {
+        if (c === '"') { if (text[i + 1] === '"') { cell += '"'; i++; } else q = false; }
+        else cell += c;
+      } else if (c === '"') q = true;
+      else if (c === ',') { row.push(cell); cell = ''; }
+      else if (c === '\n') { row.push(cell); rows.push(row); row = []; cell = ''; }
+      else if (c !== '\r') cell += c;
+    }
+    row.push(cell); rows.push(row);
+    return rows;
+  }
+
+  // ---------------------------------------------------------------------
+  // Avatar markup
+  // ---------------------------------------------------------------------
+  function avatarSVG(p, size) {
+    return (
+      '<svg viewBox="0 0 64 64" style="width:' + size + 'px;height:' + size + 'px;display:block" aria-hidden="true">' +
+        '<circle cx="32" cy="32" r="32" fill="' + p.tint + '"></circle>' +
+        '<circle cx="32" cy="54" r="23" fill="' + p.color + '" opacity="0.16"></circle>' +
+        '<circle cx="11.5" cy="16" r="2.2" fill="' + p.color2 + '" opacity="0.45"></circle>' +
+        '<circle cx="52.5" cy="13.5" r="1.5" fill="' + p.color2 + '" opacity="0.45"></circle>' +
+        '<circle cx="55" cy="45" r="2" fill="' + p.color + '" opacity="0.4"></circle>' +
+        '<path d="M32 48.5c7.4 0 13.4 4.8 14.4 11.4-4.2 2.6-9.1 4.1-14.4 4.1s-10.2-1.5-14.4-4.1c1-6.6 7-11.4 14.4-11.4z" fill="' + p.color + '"></path>' +
+        '<circle cx="19.4" cy="34.6" r="2.7" fill="' + p.skin + '"></circle>' +
+        '<circle cx="44.6" cy="34.6" r="2.7" fill="' + p.skin + '"></circle>' +
+        '<path d="' + p.head + '" fill="' + p.skin + '"></path>' +
+        '<path d="' + p.hat + '" fill="' + p.color + '"></path>' +
+        '<path d="' + p.hat2 + '" fill="' + p.color2 + '"></path>' +
+        '<circle cx="21.2" cy="40.6" r="2.9" fill="' + p.color + '" opacity="0.24"></circle>' +
+        '<circle cx="42.8" cy="40.6" r="2.9" fill="' + p.color + '" opacity="0.24"></circle>' +
+        '<ellipse cx="26.2" cy="34.4" rx="3.9" ry="4.4" fill="#ffffff"></ellipse>' +
+        '<ellipse cx="37.8" cy="34.4" rx="3.9" ry="4.4" fill="#ffffff"></ellipse>' +
+        '<circle cx="26.9" cy="35" r="2" fill="#1f2937"></circle>' +
+        '<circle cx="38.5" cy="35" r="2" fill="#1f2937"></circle>' +
+        '<circle cx="26.1" cy="34.1" r="0.7" fill="#ffffff"></circle>' +
+        '<circle cx="37.7" cy="34.1" r="0.7" fill="#ffffff"></circle>' +
+        '<path d="' + p.brow + '" stroke="#1f2937" stroke-width="1.4" fill="none" stroke-linecap="round"></path>' +
+        '<path d="' + p.mouth + '" fill="#1f2937"></path>' +
+        '<path d="' + p.acc + '" fill="' + p.color2 + '"></path>' +
+        '<path d="' + (p.accStroke || '') + '" stroke="' + p.color2 + '" stroke-width="2.4" fill="none" stroke-linecap="round"></path>' +
+      '</svg>'
+    );
+  }
+
+  // ---------------------------------------------------------------------
+  // App
+  // ---------------------------------------------------------------------
+  class App {
+    constructor(root) {
+      this.root = root;
+      this.state = { tab: 'participant', sel: 0, data: null, live: false, newEntry: false, newEntryText: '', source: 'snapshot' };
+      this.root.addEventListener('click', (e) => this.onClick(e));
+      this.render();
+      this.load();
+    }
+
+    setState(patch) {
+      Object.assign(this.state, patch);
+      this.render();
+    }
+
+    onClick(e) {
+      const el = e.target.closest('[data-action]');
+      if (!el) return;
+      const action = el.getAttribute('data-action');
+      if (action === 'select-person') {
+        this.setState({ sel: parseInt(el.getAttribute('data-idx'), 10) });
+      } else if (action === 'goto') {
+        this.setState({ tab: el.getAttribute('data-tab') });
+      } else if (action === 'dismiss') {
+        this.setState({ newEntry: false });
+      }
+    }
+
+    async load() {
+      try {
+        const res = await fetch(PESO_CSV_URL, { cache: 'no-store' });
+        if (!res.ok) throw new Error('http ' + res.status);
+        const rows = parseCSV(await res.text());
+        const data = this.readPeso(rows);
+        if (!data) throw new Error('layout');
+        let strategies = null;
+        try {
+          const r2 = await fetch(ESTRATEGIA_CSV_URL, { cache: 'no-store' });
+          if (r2.ok) strategies = this.readEstrategia(parseCSV(await r2.text()));
+        } catch (e) { /* keep snapshot strategies */ }
+        if (strategies) data.strategies = strategies;
+        this.setState({ data, live: true, source: 'live' });
+        this.checkNew(data);
+      } catch (e) {
+        this.setState({ source: 'snapshot' });
+      }
+    }
+
+    readPeso(rows) {
+      const at = (r, c) => (rows[r] && rows[r][c] != null ? String(rows[r][c]).trim() : '');
+      let order = null, heights = {}, target = {}, toLose = {}, cols = {};
+      for (let r = 0; r < rows.length; r++) {
+        for (let c = 0; c < (rows[r] || []).length; c++) {
+          const v = at(r, c);
+          if (v === 'Parametro' && !order) {
+            order = [];
+            for (let k = c + 1; k < rows[r].length; k++) { const n = at(r, k); if (n) { order.push(n); cols[n] = k; } }
+          }
+          if (order && (v === 'Estatura' || v === 'Peso deseado' || v === 'Kilos por perder')) {
+            order.forEach((n) => {
+              const x = num(at(r, cols[n]));
+              if (x == null) return;
+              if (v === 'Estatura') heights[n] = x;
+              if (v === 'Peso deseado') target[n] = x;
+              if (v === 'Kilos por perder') toLose[n] = x;
+            });
+          }
+        }
+      }
+      if (!order || !order.length || !Object.keys(heights).length) return null;
+      let hr = -1, wcols = {};
+      for (let r = 0; r < rows.length; r++) {
+        if (at(r, 0).toLowerCase() === 'week') {
+          hr = r;
+          for (let k = 1; k < rows[r].length; k++) { const n = at(r, k); if (order.indexOf(n) > -1) wcols[n] = k; }
+          break;
+        }
+      }
+      if (hr < 0) return null;
+      const weeks = [];
+      for (let r = hr + 1; r < rows.length; r++) {
+        const w = num(at(r, 0));
+        if (w == null) break;
+        const v = {};
+        order.forEach((n) => { const x = num(at(r, wcols[n])); if (x != null) v[n] = x; });
+        weeks.push({ w, date: at(r, 1), v });
+      }
+      if (!weeks.length) return null;
+      return { order, heights, target, toLose, weeks, strategies: null };
+    }
+
+    readEstrategia(rows) {
+      const out = [];
+      rows.forEach((r) => {
+        const n = num(r[0]);
+        const code = (r[2] || '').trim();
+        const desc = (r[3] || '').trim();
+        if (n != null && code && desc) {
+          const base = STRAT[out.length] || {};
+          out.push({ code, date: (r[1] || '').trim(), en: base.en || desc, es: desc, d1: base.d1 || '', d2: base.d2 || '', d3: base.d3 || '' });
+        }
+      });
+      return out.length ? out : null;
+    }
+
+    checkNew(data) {
+      let last = -1;
+      data.weeks.forEach((w) => { if (Object.keys(w.v).length) last = Math.max(last, w.w); });
+      let seen = -1;
+      try { seen = parseInt(localStorage.getItem('lzp:lastWeek') || '-1', 10); } catch (e) { seen = -1; }
+      if (last > seen) {
+        const n = data.weeks.filter((w) => w.w === last)[0];
+        const count = Object.keys(n.v).length;
+        try { localStorage.setItem('lzp:lastWeek', String(last)); } catch (e) { /* ignore */ }
+        if (seen >= 0) this.setState({ newEntry: true, newEntryText: 'Week ' + last + ' is in — ' + count + ' new weights read from the sheet. The participants would be mailed here.' });
+      }
+    }
+
+    chart(person, D) {
+      const h = D.heights[person.name], W = 354, H = 176, L = 34, R = 42, T = 14, B = 26;
+      const iw = W - L - R, ih = H - T - B;
+      const last = person.entries[person.entries.length - 1];
+      const x = (w) => L + (iw * w) / 7;
+      const vals = [];
+      person.entries.forEach((e) => vals.push(e.kg));
+      person.path.forEach((p) => { vals.push(p.hi); vals.push(p.lo); });
+      vals.push(person.target);
+      let min = Math.min.apply(null, vals), max = Math.max.apply(null, vals);
+      const pad = Math.max(0.8, (max - min) * 0.18);
+      min -= pad; max += pad;
+      const y = (v) => T + (ih * (max - v)) / (max - min);
+      const actual = person.entries.map((e, i) => (i ? 'L' : 'M') + x(e.w).toFixed(1) + ' ' + y(e.kg).toFixed(1)).join(' ');
+      const proj = person.path.length ? ('M' + x(last.w).toFixed(1) + ' ' + y(last.kg).toFixed(1) + ' ' + person.path.map((p) => 'L' + x(p.w).toFixed(1) + ' ' + y(p.mid).toFixed(1)).join(' ')) : '';
+      let band = '';
+      if (person.path.length && SHOW_BAND) {
+        const up = person.path.map((p) => 'L' + x(p.w).toFixed(1) + ' ' + y(p.hi).toFixed(1)).join(' ');
+        const dn = person.path.slice().reverse().map((p) => 'L' + x(p.w).toFixed(1) + ' ' + y(p.lo).toFixed(1)).join(' ');
+        band = 'M' + x(last.w).toFixed(1) + ' ' + y(last.kg).toFixed(1) + ' ' + up + ' ' + dn + ' Z';
+      }
+      const pctX = (v) => ((v / W) * 100).toFixed(2) + '%';
+      const pctY = (v) => ((v / H) * 100).toFixed(2) + '%';
+      const lbl = { position: 'absolute', fontSize: 9, lineHeight: 1, color: '#94a3b8', fontFeatureSettings: "'tnum'", whiteSpace: 'nowrap' };
+      const ticks = [];
+      for (let i = 0; i <= 3; i++) {
+        const v = min + ((max - min) * i) / 3;
+        ticks.push({
+          x1: L, x2: W - R, y: y(v), wLabel: v.toFixed(1), bmiLabel: bmi(v, h).toFixed(1),
+          wStyle: Object.assign({}, lbl, { left: pctX(L - 5), top: pctY(y(v)), transform: 'translate(-100%,-50%)' }),
+          bmiStyle: Object.assign({}, lbl, { left: pctX(W - R + 5), top: pctY(y(v)), transform: 'translateY(-50%)', color: person.color })
+        });
+      }
+      const xLabels = [];
+      D.weeks.forEach((w) => {
+        if (w.w % 2 === 0 || w.w === 7) xLabels.push({
+          label: w.date,
+          style: Object.assign({}, lbl, { left: pctX(x(w.w)), top: pctY(H - 12), transform: 'translate(-50%,0)' })
+        });
+      });
+      return {
+        ticks, xLabels, band, actual, proj,
+        dots: person.entries.map((e) => ({ x: x(e.w), y: y(e.kg) })),
+        endX: x(7), endY: y(person.projW),
+        targetLine: 'M' + L + ' ' + y(person.target).toFixed(1) + ' L' + (W - R) + ' ' + y(person.target).toFixed(1),
+        targetLabelStyle: Object.assign({}, lbl, { left: pctX(L + 3), top: pctY(y(person.target) - 5), transform: 'translateY(-100%)', color: '#0d9488' })
+      };
+    }
+
+    computeViewModel() {
+      const D = this.state.data || { order: SNAP.order, heights: SNAP.heights, target: SNAP.target, toLose: SNAP.toLose, weeks: SNAP.weeks, strategies: null };
+      const strategies = (this.state.data && this.state.data.strategies) || STRAT;
+      const trust = REGRESSION_TRUST;
+      const today = new Date();
+      let curIdx = 0;
+      WEEK_DATES.forEach((d, i) => { if (new Date(d + 'T00:00:00') <= today) curIdx = i; });
+
+      const people = D.order.map((name, idx) => {
+        const look = LOOK[name] || LOOK.Diego;
+        const h = D.heights[name];
+        const entries = [];
+        D.weeks.forEach((w) => { if (w.v[name] != null) entries.push({ w: w.w, kg: w.v[name], date: w.date }); });
+        const start = entries[0] || { kg: null, w: 0 };
+        const last = entries[entries.length - 1] || start;
+        const target = D.target[name];
+        const toLoseV = D.toLose[name];
+        const curB = last.kg != null ? bmi(last.kg, h) : null;
+        const band = curB != null ? bmiBand(curB) : ['No entry', '#6b7280'];
+        const lost = start.kg != null && last.kg != null ? start.kg - last.kg : 0;
+        const span = start.kg != null ? start.kg - target : 1;
+        const prog = Math.max(0, Math.min(1, span > 0 ? lost / span : 0));
+        const delta = entries.length > 1 ? last.kg - entries[entries.length - 2].kg : 0;
+
+        // blended projection: least squares on entries, pulled toward the pace needed to hit target
+        let slope = 0;
+        if (entries.length >= 2) {
+          const n = entries.length;
+          const mx = entries.reduce((a, e) => a + e.w, 0) / n;
+          const my = entries.reduce((a, e) => a + e.kg, 0) / n;
+          let sxy = 0, sxx = 0;
+          entries.forEach((e) => { sxy += (e.w - mx) * (e.kg - my); sxx += Math.pow(e.w - mx, 2); });
+          slope = sxx ? sxy / sxx : 0;
+        }
+        const weeksLeft = Math.max(1, 7 - last.w);
+        const needed = (target - (last.kg != null ? last.kg : target)) / weeksLeft;
+        const conf = Math.min(1, Math.max(0, (entries.length - 1) / 5)) * trust * 2;
+        const blended = conf * slope + (1 - Math.min(1, conf)) * needed;
+        const path = [];
+        for (let w = last.w + 1; w <= 7; w++) {
+          const step = w - last.w;
+          const mid = last.kg + blended * step;
+          const spread = 0.55 * Math.sqrt(step) + 0.25 * step * (1 - Math.min(1, conf));
+          path.push({ w, mid, hi: mid + spread, lo: mid - spread });
+        }
+        const projW = path.length ? path[path.length - 1].mid : last.kg;
+        const projB = projW != null ? bmi(projW, h) : null;
+        const projDelta = projW != null ? projW - target : 0;
+
+        const p = {
+          name, idx, color: look.color, color2: look.color2, tint: look.tint, skin: look.skin,
+          head: look.head, hat: look.hat, hat2: look.hat2, brow: look.brow, mouth: look.mouth, acc: look.acc, accStroke: look.accStroke,
+          entries, target, projW, path,
+          heightLine: h + ' cm · target ' + f1(target) + ' kg',
+          curWStr: f1(last.kg), curBmiStr: curB != null ? curB.toFixed(1) : '—',
+          curWeek: last.w, curDate: last.date || '—',
+          bmiLabel: band[0],
+          startWStr: f1(start.kg) + ' kg', startBmiStr: start.kg != null ? bmi(start.kg, h).toFixed(1) : '—',
+          targetWStr: f1(target) + ' kg', targetBmiStr: bmi(target, h).toFixed(1),
+          toLoseStr: f1(toLoseV) + ' kg',
+          lostStr: (lost >= 0 ? '−' : '+') + Math.abs(lost).toFixed(1) + ' kg',
+          remainStr: Math.max(0, (last.kg != null ? last.kg : target) - target).toFixed(1) + ' kg',
+          weeksLeftLine: (7 - last.w) + ' weeks left',
+          deltaStr: (delta === 0 ? '±0.0' : (delta < 0 ? '−' : '+') + Math.abs(delta).toFixed(1)) + ' kg vs week ' + Math.max(0, last.w - 1),
+          projWStr: projW != null ? projW.toFixed(1) : '—',
+          projBmiStr: projB != null ? projB.toFixed(1) : '—',
+          projDeltaStr: (projDelta <= 0 ? '−' : '+') + Math.abs(projDelta).toFixed(1) + ' vs target',
+          projLossLine: 'total loss ' + (start.kg != null && projW != null ? (start.kg - projW).toFixed(1) : '—') + ' kg of ' + f1(toLoseV) + ' kg',
+          dotStyle: { width: 9, height: 9, borderRadius: 9999, background: look.color, display: 'inline-block' },
+          bmiPillStyle: { fontSize: 10, fontWeight: 400, letterSpacing: '0.6px', textTransform: 'uppercase', padding: '4px 10px', borderRadius: 9999, background: band[1] === '#0f766e' ? '#99f6e4' : 'rgba(0,0,0,.05)', color: band[1] },
+          deltaStyle: { fontSize: 11, color: delta <= 0 ? '#0f766e' : '#e11d48', paddingBottom: 7, fontFeatureSettings: "'tnum'" },
+          projDeltaStyle: { fontSize: 10.5, marginLeft: 'auto', paddingBottom: 3, color: projDelta <= 0 ? '#0f766e' : '#b45309', fontFeatureSettings: "'tnum'" },
+          progressStyle: { width: (prog * 100).toFixed(1) + '%', height: '100%', background: look.color, borderRadius: 9999, transition: 'width 160ms ease' },
+          chipStyle: {
+            flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 6, cursor: 'pointer',
+            padding: '10px 6px', borderRadius: 12, background: this.state.sel === idx ? 'rgba(255,255,255,.07)' : 'transparent',
+            border: '1px solid ' + (this.state.sel === idx ? 'rgba(255,255,255,.16)' : 'rgba(255,255,255,.05)'),
+            transition: 'background 160ms ease, border-color 160ms ease'
+          },
+          chipNameStyle: { fontSize: 11, fontWeight: 400, letterSpacing: '0.2px', color: this.state.sel === idx ? '#ffffff' : 'rgba(255,255,255,.5)' },
+          bars: D.weeks.map((w) => {
+            const kg = w.v[name];
+            const lo = Math.min.apply(null, entries.map((e) => e.kg).concat([target]));
+            const hi = Math.max.apply(null, entries.map((e) => e.kg));
+            const t = kg != null && hi > lo ? (kg - lo) / (hi - lo) : 0;
+            return {
+              week: w.w,
+              style: kg != null
+                ? { width: '100%', height: (18 + t * 26).toFixed(0) + 'px', borderRadius: 3, background: look.color, opacity: w.w === last.w ? 1 : 0.55 }
+                : { width: '100%', height: '8px', borderRadius: 3, background: 'rgba(255,255,255,.09)' },
+              labelStyle: { fontSize: 9, color: w.w === curIdx ? 'rgba(255,255,255,.8)' : 'rgba(255,255,255,.3)', fontFeatureSettings: "'tnum'" }
+            };
+          })
+        };
+        return p;
+      });
+
+      people.forEach((p) => { p.chart = this.chart(p, D); });
+      const sel = people[Math.min(this.state.sel, people.length - 1)] || people[0];
+
+      return {
+        people, sel, curIdx,
+        isParticipant: this.state.tab === 'participant',
+        isStrategy: this.state.tab === 'strategy',
+        isProjection: this.state.tab === 'projection',
+        weekLabel: 'Week ' + curIdx + ' of 7',
+        newEntry: this.state.newEntry,
+        newEntryText: this.state.newEntryText,
+        sourceLine: this.state.source === 'live'
+          ? 'Read live from 2026 Los zonder Pan · sheet Peso'
+          : 'Offline snapshot of 2026 Los zonder Pan (Peso, 30 Aug). Reconnect to fetch the live sheet.',
+        projMethodLine: 'Least-squares trend through every entry so far, pulled toward the pace needed to reach each target. The band widens as the estimate reaches further out.',
+        strategies: strategies.map((s, i) => {
+          const isNow = i === curIdx;
+          return {
+            code: s.code, date: s.date, en: s.en, es: s.es, d1: s.d1 || '', d2: s.d2 || '', d3: s.d3 || '', isNow,
+            rowStyle: {
+              display: 'flex', gap: 14, alignItems: 'flex-start', padding: '14px 16px', borderRadius: 12,
+              background: isNow ? '#ffffff' : 'transparent',
+              border: '1px solid ' + (isNow ? '#ffffff' : 'rgba(255,255,255,.09)'),
+              boxShadow: isNow ? 'rgba(15,23,42,.08) 0 8px 24px' : 'none',
+              opacity: i < curIdx ? 0.62 : 1
+            },
+            iconWrapStyle: {
+              flex: 'none', width: 40, height: 40, borderRadius: 9999, display: 'flex', alignItems: 'center', justifyContent: 'center',
+              background: isNow ? '#99f6e4' : 'rgba(255,255,255,.06)', color: isNow ? '#0f766e' : 'rgba(255,255,255,.62)'
+            },
+            codeStyle: { fontSize: 10, fontWeight: 400, letterSpacing: '1px', textTransform: 'uppercase', color: isNow ? '#0f766e' : 'rgba(255,255,255,.5)' },
+            dateStyle: { fontSize: 10, color: isNow ? '#6b7280' : 'rgba(255,255,255,.32)', fontFeatureSettings: "'tnum'" },
+            enStyle: { fontSize: 13.5, lineHeight: 1.45, marginTop: 5, color: isNow ? '#111827' : 'rgba(255,255,255,.9)' },
+            esStyle: { fontSize: 10.5, lineHeight: 1.45, marginTop: 4, color: isNow ? '#6b7280' : 'rgba(255,255,255,.34)' }
+          };
+        })
+      };
+    }
+
+    // -------------------------------------------------------------------
+    // Rendering
+    // -------------------------------------------------------------------
+    render() {
+      const vm = this.computeViewModel();
+
+      const header =
+        '<div style="display:flex;align-items:baseline;justify-content:space-between;padding:6px 20px 12px;flex:none">' +
+          '<div style="font-size:14px;letter-spacing:-0.2px;font-weight:300;color:rgba(255,255,255,.92)">los <span style="font-weight:400">ZonderPan</span> de Peniche</div>' +
+          '<div style="font-size:10px;font-weight:400;letter-spacing:1px;text-transform:uppercase;color:rgba(255,255,255,.42)">' + esc(vm.weekLabel) + '</div>' +
+        '</div>';
+
+      const banner = vm.newEntry
+        ? '<div style="margin:0 16px 10px;flex:none;display:flex;align-items:center;gap:10px;padding:10px 14px;border:1px solid rgba(13,148,136,.5);background:rgba(13,148,136,.14);border-radius:8px">' +
+            '<div style="width:6px;height:6px;border-radius:9999px;background:#2dd4bf;flex:none"></div>' +
+            '<div style="font-size:11.5px;line-height:1.45;color:rgba(255,255,255,.82)">' + esc(vm.newEntryText) + '</div>' +
+            '<button data-action="dismiss" style="margin-left:auto;flex:none;border:0;background:transparent;color:rgba(255,255,255,.45);font:400 10px/1 Inter,system-ui,sans-serif;letter-spacing:.6px;text-transform:uppercase;cursor:pointer;padding:4px">Dismiss</button>' +
+          '</div>'
+        : '';
+
+      const body = vm.isParticipant ? this.renderParticipant(vm)
+        : vm.isStrategy ? this.renderStrategy(vm)
+        : this.renderProjection(vm);
+
+      const nav = this.renderNav(vm);
+
+      this.root.innerHTML =
+        '<div style="flex:1;display:flex;flex-direction:column;background:#0f172a;color:#ffffff;padding-top:max(20px, env(safe-area-inset-top));box-sizing:border-box">' +
+          header + banner +
+          '<div style="flex:1;min-height:0;overflow:auto;padding:0 16px 20px;display:flex;flex-direction:column;gap:12px">' + body + '</div>' +
+          nav +
+        '</div>';
+    }
+
+    renderParticipant(vm) {
+      const chips = vm.people.map((p) =>
+        '<button data-action="select-person" data-idx="' + p.idx + '" style="' + css(p.chipStyle) + '">' +
+          avatarSVG(p, 46) +
+          '<span style="' + css(p.chipNameStyle) + '">' + esc(p.name) + '</span>' +
+        '</button>'
+      ).join('');
+
+      const sel = vm.sel;
+      const bars = sel.bars.map((b) =>
+        '<div style="flex:1;display:flex;flex-direction:column;align-items:center;gap:6px;justify-content:flex-end;height:100%">' +
+          '<div style="' + css(b.style) + '"></div>' +
+          '<div style="' + css(b.labelStyle) + '">' + b.week + '</div>' +
+        '</div>'
+      ).join('');
+
+      return (
+        '<div style="display:flex;flex-direction:column;gap:12px">' +
+          '<div style="display:flex;gap:10px">' + chips + '</div>' +
+
+          '<div style="background:#ffffff;border-radius:12px;padding:20px;color:#111827;box-shadow:rgba(15,23,42,.08) 0 8px 24px, rgba(15,23,42,.04) 0 2px 6px">' +
+            '<div style="display:flex;align-items:flex-start;gap:14px">' +
+              avatarSVG(sel, 72) +
+              '<div style="flex:1;min-width:0">' +
+                '<div style="font-size:19px;letter-spacing:-0.3px;font-weight:300">' + esc(sel.name) + '</div>' +
+                '<div style="font-size:11.5px;color:#6b7280;margin-top:3px">' + esc(sel.heightLine) + '</div>' +
+                '<div style="display:flex;align-items:center;gap:8px;margin-top:10px">' +
+                  '<span style="' + css(sel.bmiPillStyle) + '">' + esc(sel.bmiLabel) + '</span>' +
+                  "<span style=\"font-size:11px;color:#6b7280;font-feature-settings:'tnum'\">BMI " + sel.curBmiStr + '</span>' +
+                '</div>' +
+              '</div>' +
+            '</div>' +
+            '<div style="display:flex;align-items:flex-end;gap:10px;margin-top:18px">' +
+              "<div style=\"font-size:46px;line-height:1;font-weight:300;letter-spacing:-1.4px;font-feature-settings:'tnum'\">" + sel.curWStr + '</div>' +
+              '<div style="font-size:13px;color:#6b7280;padding-bottom:6px">kg</div>' +
+              '<div style="' + css(sel.deltaStyle) + '">' + sel.deltaStr + '</div>' +
+            '</div>' +
+            '<div style="font-size:10px;font-weight:400;letter-spacing:1px;text-transform:uppercase;color:#6b7280;margin-top:8px">Current · week ' + sel.curWeek + ' · ' + esc(sel.curDate) + '</div>' +
+            '<div style="margin-top:16px">' +
+              '<div style="height:6px;border-radius:9999px;background:#e2e8f0;overflow:hidden">' +
+                '<div style="' + css(sel.progressStyle) + '"></div>' +
+              '</div>' +
+              "<div style=\"display:flex;justify-content:space-between;margin-top:7px;font-size:10.5px;color:#6b7280;font-feature-settings:'tnum'\">" +
+                '<span>' + sel.lostStr + ' lost</span>' +
+                '<span>' + sel.remainStr + ' to target</span>' +
+              '</div>' +
+            '</div>' +
+          '</div>' +
+
+          '<div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">' +
+            '<div style="background:#ffffff;border:1px solid #e2e8f0;border-radius:12px;padding:14px 16px;color:#111827">' +
+              '<div style="font-size:10px;font-weight:400;letter-spacing:1px;text-transform:uppercase;color:#6b7280">Start · week 0</div>' +
+              "<div style=\"font-size:26px;font-weight:300;letter-spacing:-0.6px;margin-top:6px;font-feature-settings:'tnum'\">" + sel.startWStr + '</div>' +
+              "<div style=\"font-size:11px;color:#6b7280;margin-top:2px;font-feature-settings:'tnum'\">BMI " + sel.startBmiStr + '</div>' +
+            '</div>' +
+            '<div style="background:#ffffff;border:1px solid #e2e8f0;border-radius:12px;padding:14px 16px;color:#111827">' +
+              '<div style="font-size:10px;font-weight:400;letter-spacing:1px;text-transform:uppercase;color:#6b7280">Target</div>' +
+              "<div style=\"font-size:26px;font-weight:300;letter-spacing:-0.6px;margin-top:6px;font-feature-settings:'tnum';color:#0d9488\">" + sel.targetWStr + '</div>' +
+              "<div style=\"font-size:11px;color:#6b7280;margin-top:2px;font-feature-settings:'tnum'\">BMI " + sel.targetBmiStr + '</div>' +
+            '</div>' +
+            '<div style="background:#ffffff;border:1px solid #e2e8f0;border-radius:12px;padding:14px 16px;color:#111827">' +
+              '<div style="font-size:10px;font-weight:400;letter-spacing:1px;text-transform:uppercase;color:#6b7280">Kilos to lose</div>' +
+              "<div style=\"font-size:26px;font-weight:300;letter-spacing:-0.6px;margin-top:6px;font-feature-settings:'tnum'\">" + sel.toLoseStr + '</div>' +
+              '<div style="font-size:11px;color:#6b7280;margin-top:2px">agreed at week 0</div>' +
+            '</div>' +
+            '<div style="background:#ffffff;border:1px solid #e2e8f0;border-radius:12px;padding:14px 16px;color:#111827">' +
+              '<div style="font-size:10px;font-weight:400;letter-spacing:1px;text-transform:uppercase;color:#6b7280">Still to go</div>' +
+              "<div style=\"font-size:26px;font-weight:300;letter-spacing:-0.6px;margin-top:6px;font-feature-settings:'tnum'\">" + sel.remainStr + '</div>' +
+              '<div style="font-size:11px;color:#6b7280;margin-top:2px">' + esc(sel.weeksLeftLine) + '</div>' +
+            '</div>' +
+          '</div>' +
+
+          '<div style="border:1px solid rgba(255,255,255,.08);border-radius:12px;padding:14px 16px">' +
+            '<div style="font-size:10px;font-weight:400;letter-spacing:1px;text-transform:uppercase;color:rgba(255,255,255,.42)">Weekly entries</div>' +
+            '<div style="display:flex;gap:6px;margin-top:12px;align-items:flex-end;height:56px">' + bars + '</div>' +
+          '</div>' +
+
+          '<div style="font-size:10.5px;line-height:1.6;color:rgba(255,255,255,.34)">' + esc(vm.sourceLine) + '</div>' +
+        '</div>'
+      );
+    }
+
+    renderStrategy(vm) {
+      const rows = vm.strategies.map((s) => {
+        const nowPill = s.isNow
+          ? '<span style="font-size:9.5px;font-weight:400;letter-spacing:1px;text-transform:uppercase;padding:3px 8px;border-radius:9999px;background:#99f6e4;color:#0f766e">This week</span>'
+          : '';
+        return (
+          '<div style="' + css(s.rowStyle) + '">' +
+            '<div style="' + css(s.iconWrapStyle) + '">' +
+              '<svg viewBox="0 0 24 24" style="width:22px;height:22px;display:block" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' +
+                (s.d1 ? '<path d="' + s.d1 + '"></path>' : '') +
+                (s.d2 ? '<path d="' + s.d2 + '"></path>' : '') +
+                (s.d3 ? '<path d="' + s.d3 + '"></path>' : '') +
+              '</svg>' +
+            '</div>' +
+            '<div style="flex:1;min-width:0">' +
+              '<div style="display:flex;align-items:center;gap:8px">' +
+                '<span style="' + css(s.codeStyle) + '">' + esc(s.code) + '</span>' +
+                '<span style="' + css(s.dateStyle) + '">' + esc(s.date) + '</span>' +
+                nowPill +
+              '</div>' +
+              '<div style="' + css(s.enStyle) + '">' + esc(s.en) + '</div>' +
+              '<div style="' + css(s.esStyle) + '">' + esc(s.es) + '</div>' +
+            '</div>' +
+          '</div>'
+        );
+      }).join('');
+
+      return (
+        '<div style="display:flex;flex-direction:column;gap:10px">' +
+          '<div style="padding:2px 0 4px">' +
+            '<div style="font-size:22px;font-weight:300;letter-spacing:-0.5px">Strategy</div>' +
+            '<div style="font-size:11.5px;line-height:1.5;color:rgba(255,255,255,.5);margin-top:4px;max-width:300px">One rule a week, from 22 August to 10 October. The current week is marked.</div>' +
+          '</div>' +
+          rows +
+        '</div>'
+      );
+    }
+
+    renderProjection(vm) {
+      const cards = vm.people.map((p) => {
+        const ticksW = p.chart.ticks.map((t) => '<div style="' + css(t.wStyle) + '">' + t.wLabel + '</div>').join('');
+        const ticksBmi = p.chart.ticks.map((t) => '<div style="' + css(t.bmiStyle) + '">' + t.bmiLabel + '</div>').join('');
+        const xLabels = p.chart.xLabels.map((x) => '<div style="' + css(x.style) + '">' + esc(x.label) + '</div>').join('');
+        const gridLines = p.chart.ticks.map((t) => '<line x1="' + t.x1 + '" y1="' + t.y + '" x2="' + t.x2 + '" y2="' + t.y + '" stroke="#e2e8f0" stroke-width="1"></line>').join('');
+        const dots = p.chart.dots.map((d) => '<circle cx="' + d.x + '" cy="' + d.y + '" r="3.4" fill="#ffffff" stroke="' + p.color + '" stroke-width="2.2"></circle>').join('');
+
+        return (
+          '<div style="background:#ffffff;border-radius:12px;padding:16px 14px 12px;color:#111827;box-shadow:rgba(15,23,42,.08) 0 8px 24px, rgba(15,23,42,.04) 0 2px 6px">' +
+            '<div style="display:flex;align-items:baseline;justify-content:space-between;padding:0 4px">' +
+              '<div style="display:flex;align-items:center;gap:8px">' +
+                '<span style="' + css(p.dotStyle) + '"></span>' +
+                '<span style="font-size:15px;font-weight:300;letter-spacing:-0.2px">' + esc(p.name) + '</span>' +
+              '</div>' +
+              '<div style="font-size:10px;font-weight:400;letter-spacing:1px;text-transform:uppercase;color:#6b7280">10 Oct estimate</div>' +
+            '</div>' +
+            '<div style="display:flex;align-items:flex-end;gap:8px;padding:8px 4px 2px">' +
+              "<div style=\"font-size:32px;line-height:1;font-weight:300;letter-spacing:-1px;font-feature-settings:'tnum'\">" + p.projWStr + '</div>' +
+              '<div style="font-size:11.5px;color:#6b7280;padding-bottom:3px">kg · BMI ' + p.projBmiStr + '</div>' +
+              '<div style="' + css(p.projDeltaStyle) + '">' + p.projDeltaStr + '</div>' +
+            '</div>' +
+            '<div style="position:relative;margin-top:4px">' +
+              ticksW + ticksBmi + xLabels +
+              '<svg viewBox="0 0 354 176" style="width:100%;height:auto;display:block;overflow:visible">' +
+                gridLines +
+                '<path d="' + p.chart.band + '" fill="' + p.color + '" opacity="0.13"></path>' +
+                '<path d="' + p.chart.targetLine + '" stroke="#0d9488" stroke-width="1" stroke-dasharray="2 4" fill="none"></path>' +
+                '<path d="' + p.chart.proj + '" stroke="' + p.color + '" stroke-width="2" stroke-dasharray="5 4" fill="none" stroke-linecap="round"></path>' +
+                '<path d="' + p.chart.actual + '" stroke="' + p.color + '" stroke-width="2.4" fill="none" stroke-linecap="round" stroke-linejoin="round"></path>' +
+                dots +
+                '<circle cx="' + p.chart.endX + '" cy="' + p.chart.endY + '" r="3.4" fill="' + p.color + '" opacity="0.55"></circle>' +
+              '</svg>' +
+              '<div style="' + css(p.chart.targetLabelStyle) + '">target</div>' +
+            '</div>' +
+            '<div style="display:flex;gap:14px;padding:4px 4px 0;flex-wrap:wrap">' +
+              '<div style="display:flex;align-items:center;gap:6px;font-size:9.5px;color:#6b7280"><span style="width:14px;height:2px;background:' + p.color + ';display:inline-block"></span>measured</div>' +
+              '<div style="display:flex;align-items:center;gap:6px;font-size:9.5px;color:#6b7280"><span style="width:14px;height:0;border-top:2px dashed ' + p.color + ';display:inline-block"></span>projected</div>' +
+              '<div style="display:flex;align-items:center;gap:6px;font-size:9.5px;color:#6b7280"><span style="width:12px;height:8px;background:' + p.color + ';opacity:.18;display:inline-block;border-radius:2px"></span>range</div>' +
+              "<div style=\"font-size:9.5px;color:#6b7280;margin-left:auto;font-feature-settings:'tnum'\">" + esc(p.projLossLine) + '</div>' +
+            '</div>' +
+          '</div>'
+        );
+      }).join('');
+
+      return (
+        '<div style="display:flex;flex-direction:column;gap:12px">' +
+          '<div style="padding:2px 0 0">' +
+            '<div style="font-size:22px;font-weight:300;letter-spacing:-0.5px">Projection</div>' +
+            '<div style="font-size:11.5px;line-height:1.5;color:rgba(255,255,255,.5);margin-top:4px;max-width:310px">' + esc(vm.projMethodLine) + '</div>' +
+          '</div>' +
+          cards +
+          '<div style="font-size:10.5px;line-height:1.6;color:rgba(255,255,255,.34)">Left axis kilograms, right axis BMI at the recorded height. The band widens with distance from the last real measurement.</div>' +
+        '</div>'
+      );
+    }
+
+    renderNav(vm) {
+      const navStyle = (on) => css({
+        display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 5, padding: '8px 4px 10px',
+        background: 'transparent', border: 0, borderRadius: 10, cursor: 'pointer',
+        color: on ? '#2dd4bf' : 'rgba(255,255,255,.4)', transition: 'color 160ms ease'
+      });
+      return (
+        '<div style="flex:none;display:grid;grid-template-columns:1fr 1fr 1fr;gap:2px;border-top:1px solid rgba(255,255,255,.08);padding:8px 8px max(20px, env(safe-area-inset-bottom));background:#0f172a">' +
+          '<button data-action="goto" data-tab="participant" style="' + navStyle(vm.isParticipant) + '">' +
+            '<svg viewBox="0 0 24 24" style="width:22px;height:22px" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' +
+              '<circle cx="12" cy="8.2" r="3.6"></circle>' +
+              '<path d="M4.8 20.5c0-3.6 3.2-6.1 7.2-6.1s7.2 2.5 7.2 6.1"></path>' +
+            '</svg>' +
+            '<span style="font-size:9.5px;font-weight:400;letter-spacing:.5px">Participant</span>' +
+          '</button>' +
+          '<button data-action="goto" data-tab="strategy" style="' + navStyle(vm.isStrategy) + '">' +
+            '<svg viewBox="0 0 24 24" style="width:22px;height:22px" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' +
+              '<path d="M5 21V4.2c3.6-1.6 6.4 1.4 10 0v8.6c-3.6 1.6-6.4-1.4-10 0"></path>' +
+              '<circle cx="5" cy="3.4" r="1.1" fill="currentColor" stroke="none"></circle>' +
+            '</svg>' +
+            '<span style="font-size:9.5px;font-weight:400;letter-spacing:.5px">Strategy</span>' +
+          '</button>' +
+          '<button data-action="goto" data-tab="projection" style="' + navStyle(vm.isProjection) + '">' +
+            '<svg viewBox="0 0 24 24" style="width:22px;height:22px" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' +
+              '<path d="M3.5 6.5v13h17"></path>' +
+              '<path d="M7 15.5l4-4 3 2 5.5-6.5"></path>' +
+              '<path d="M15.5 7h4.5v4.5"></path>' +
+            '</svg>' +
+            '<span style="font-size:9.5px;font-weight:400;letter-spacing:.5px">Projection</span>' +
+          '</button>' +
+        '</div>'
+      );
+    }
+  }
+
+  document.addEventListener('DOMContentLoaded', () => {
+    new App(document.getElementById('app'));
+  });
+})();

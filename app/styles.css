@@ -1,0 +1,17 @@
+html, body { height: 100%; }
+* { box-sizing: border-box; }
+body {
+  margin: 0;
+  background: #0f172a;
+  color: #ffffff;
+  font-family: 'Inter var', Inter, system-ui, sans-serif;
+  font-weight: 300;
+  font-feature-settings: "ss01";
+  -webkit-font-smoothing: antialiased;
+  overscroll-behavior-y: none;
+}
+a { color: #0d9488; text-decoration: none; }
+a:hover { color: #0f766e; }
+button { font-family: inherit; -webkit-tap-highlight-color: transparent; }
+button:focus-visible { outline: 2px solid #2dd4bf; outline-offset: 2px; }
+#app { min-height: 100dvh; display: flex; flex-direction: column; }
