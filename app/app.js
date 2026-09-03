@@ -9,6 +9,9 @@
   const SHOW_BAND = true;
   const REGRESSION_TRUST = 0.5;
 
+  // Exercise programme: week 1 starts Mon 31 Aug 2026, six weeks to 11 Oct.
+  const EX_WEEK1_START = '2026-08-31';
+
   const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
   const prettyDate = (s) => {
     const m = String(s || '').trim().match(/^(\d{1,2})\/(\d{1,2})(?:\/(\d{2,4}))?$/);
@@ -26,14 +29,15 @@
     toLose: { Diego: 10.2, Paty: 6.5, Cristhian: 5.2 },
     weeks: [
       { w: 0, date: '22/8', v: { Diego: 95.2, Paty: 66.5, Cristhian: 67.2 } },
-      { w: 1, date: '29/8', v: { Diego: 95.9, Paty: 65.8, Cristhian: 66.8 } },
+      { w: 1, date: '29/8', v: { Diego: 95.5, Paty: 65.8, Cristhian: 66.8 } },
       { w: 2, date: '5/9', v: {} },
       { w: 3, date: '12/9', v: {} },
       { w: 4, date: '19/9', v: {} },
       { w: 5, date: '26/9', v: {} },
       { w: 6, date: '3/10', v: {} },
       { w: 7, date: '10/10', v: {} }
-    ]
+    ],
+    exercises: [1, 2, 3, 4, 5, 6].map((w) => ({ w, series: w + 1, flex: {}, stren: {} }))
   };
 
   const STRAT = [
@@ -96,6 +100,13 @@
     return isFinite(v) ? v : null;
   };
   const f1 = (v) => (v == null ? '—' : v.toFixed(1));
+  // "Yes" (or any non-empty, non-zero mark) means the task was completed.
+  const doneVal = (s) => {
+    const t = String(s == null ? '' : s).trim().toLowerCase();
+    if (t === '' || t === '0' || t === 'no' || t === '-') return null;
+    const n = num(t);
+    return n != null ? n : 1;
+  };
   const bmi = (kg, cm) => kg / Math.pow(cm / 100, 2);
   const bmiBand = (b) => (b < 18.5 ? ['Underweight', '#6b7280'] : b < 25 ? ['Normal weight', '#0f766e'] : b < 30 ? ['Overweight', '#b45309'] : ['Obese', '#e11d48']);
 
@@ -272,7 +283,44 @@
         weeks.push({ w, date: at(r, 1), v });
       }
       if (!weeks.length) return null;
-      return { order, heights, target, toLose, weeks, strategies: null };
+
+      // Table "Exercises", to the right of the weight table on the same tab:
+      // Week | Flex: <name> … | Stren: Series | Stren: <name> …
+      let exRow = -1, fCol = {}, sCol = {}, serCol = -1;
+      for (let r = 0; r < rows.length && exRow < 0; r++) {
+        for (let c = 0; c < (rows[r] || []).length; c++) {
+          if (/^week$/i.test(at(r, c)) && /^flex\s*:/i.test(at(r, c + 1))) {
+            exRow = r;
+            for (let k = c + 1; k < rows[r].length; k++) {
+              const m = at(r, k).match(/^(Flex|Stren)\s*:\s*(.+)$/i);
+              if (!m) continue;
+              const who = m[2].trim();
+              if (/^series$/i.test(who)) serCol = k;
+              else if (/^flex$/i.test(m[1])) fCol[who] = k;
+              else sCol[who] = k;
+            }
+            break;
+          }
+        }
+      }
+      let exercises = null;
+      if (exRow >= 0) {
+        exercises = [];
+        const wkCol = Object.keys(fCol).length ? Math.min.apply(null, Object.keys(fCol).map((k) => fCol[k])) - 1 : 0;
+        for (let r = exRow + 1; r < rows.length; r++) {
+          const wk = num(at(r, wkCol));
+          if (wk == null || wk < 1 || wk > 6) continue;
+          const flex = {}, stren = {};
+          order.forEach((n) => {
+            if (fCol[n] != null) { const v = doneVal(at(r, fCol[n])); if (v != null) flex[n] = v; }
+            if (sCol[n] != null) { const v = doneVal(at(r, sCol[n])); if (v != null) stren[n] = v; }
+          });
+          exercises.push({ w: wk, series: serCol >= 0 ? num(at(r, serCol)) || wk + 1 : wk + 1, flex, stren });
+        }
+        exercises.sort((a, b) => a.w - b.w);
+        if (!exercises.length) exercises = null;
+      }
+      return { order, heights, target, toLose, weeks, exercises, strategies: null };
     }
 
     readEstrategia(rows) {
@@ -300,6 +348,41 @@
       } else {
         this.setState({ newEntry: false, newEntryKind: 'none', newEntryText: '' });
       }
+    }
+
+    // One exercise column: a teal tile when the week is done, otherwise a
+    // bar (solid for a missed past week, dashed while the week is open).
+    exCol(row, name, look, cur, kind) {
+      const raw = kind === 'flex' ? row.flex[name] : row.stren[name];
+      const done = raw != null;
+      const past = row.w < cur, now = row.w === cur;
+      return {
+        week: row.w, done, showBar: !done,
+        label: kind === 'stren' ? String(row.series) : '',
+        doneLabel: kind === 'stren' ? String(raw > 1 ? raw : row.series) : '',
+        slotStyle: { width: '100%', flex: 1, minHeight: 0, display: 'flex', alignItems: 'flex-end', justifyContent: 'center' },
+        barStyle: {
+          width: '100%', height: past ? '100%' : now ? '58%' : '34%', minHeight: 22, borderRadius: 4, boxSizing: 'border-box',
+          display: 'flex', alignItems: past ? 'flex-end' : 'center', justifyContent: 'center', paddingBottom: past ? 4 : 0,
+          fontSize: 9.5, fontWeight: 400, fontFeatureSettings: "'tnum'",
+          background: past ? look.color : 'transparent',
+          border: past ? 'none' : '1px dashed ' + (now ? look.color : '#e2e8f0'),
+          opacity: past ? 0.92 : now ? 1 : 0.7,
+          color: past ? '#ffffff' : now ? look.color : '#94a3b8'
+        },
+        doneStyle: {
+          width: '100%', height: 22, borderRadius: 4, display: 'flex', alignItems: 'center', justifyContent: 'center',
+          gap: 3, background: '#ccfbf1', color: '#0f766e', fontSize: 9.5, fontWeight: 400, fontFeatureSettings: "'tnum'"
+        },
+        wkStyle: { fontSize: 9, fontFeatureSettings: "'tnum'", color: now ? '#111827' : '#94a3b8', fontWeight: now ? 400 : 300 }
+      };
+    }
+
+    exWeeks(D) {
+      const ex = (D.exercises && D.exercises.length ? D.exercises : SNAP.exercises).slice(0, 6);
+      const start = new Date(EX_WEEK1_START + 'T00:00:00');
+      const cur = Math.max(1, Math.min(6, Math.floor((Date.now() - start.getTime()) / 6048e5) + 1));
+      return { ex, cur };
     }
 
     chart(person, D) {
@@ -358,6 +441,8 @@
       const today = new Date();
       let curIdx = 0;
       WEEK_DATES.forEach((d, i) => { if (new Date(d + 'T00:00:00') <= today) curIdx = i; });
+
+      const EX = this.exWeeks(D);
 
       const people = D.order.map((name, idx) => {
         const look = LOOK[name] || LOOK.Diego;
@@ -437,13 +522,23 @@
             const hi = Math.max.apply(null, entries.map((e) => e.kg));
             const t = kg != null && hi > lo ? (kg - lo) / (hi - lo) : 0;
             return {
-              week: w.w,
+              week: w.w, kgStr: kg != null ? kg.toFixed(1) : '',
               style: kg != null
-                ? { width: '100%', height: (18 + t * 26).toFixed(0) + 'px', borderRadius: 3, background: look.color, opacity: w.w === last.w ? 1 : 0.55 }
-                : { width: '100%', height: '8px', borderRadius: 3, background: 'rgba(255,255,255,.09)' },
+                ? {
+                    width: '100%', flex: 'none', height: (46 + t * 26).toFixed(0) + 'px', borderRadius: 4, background: look.color,
+                    opacity: w.w === last.w ? 1 : 0.62, display: 'flex', alignItems: 'flex-end', justifyContent: 'center',
+                    paddingBottom: 4, boxSizing: 'border-box', fontSize: 9.5, fontWeight: 400, color: '#ffffff',
+                    letterSpacing: '-0.2px', fontFeatureSettings: "'tnum'"
+                  }
+                : { width: '100%', flex: 'none', height: '8px', borderRadius: 4, background: 'rgba(255,255,255,.09)' },
               labelStyle: { fontSize: 9, color: w.w === curIdx ? 'rgba(255,255,255,.8)' : 'rgba(255,255,255,.3)', fontFeatureSettings: "'tnum'" }
             };
-          })
+          }),
+          flex: EX.ex.map((row) => this.exCol(row, name, look, EX.cur, 'flex')),
+          stren: EX.ex.map((row) => this.exCol(row, name, look, EX.cur, 'stren')),
+          exWeekLine: 'week ' + EX.cur + ' of 6',
+          flexDoneLine: EX.ex.filter((r) => r.flex[name] != null).length + ' of ' + Math.max(0, EX.cur) + ' weeks done',
+          strenDoneLine: EX.ex.filter((r) => r.stren[name] != null).length + ' of ' + Math.max(0, EX.cur) + ' weeks done'
         };
         return p;
       });
@@ -456,6 +551,8 @@
         isParticipant: this.state.tab === 'participant',
         isStrategy: this.state.tab === 'strategy',
         isProjection: this.state.tab === 'projection',
+        isExercises: this.state.tab === 'exercises',
+        exIntro: 'Flexibility every day; strength three times a week in series of ten. The series grow by one each week — 2 in week 1 up to 7 in week 6. A bar means the week is still open.',
         weekLabel: 'Week ' + curIdx + ' of 7',
         newEntry: this.state.newEntry,
         newEntryText: this.state.newEntryText,
@@ -507,7 +604,10 @@
 
       const header =
         '<div style="display:flex;align-items:baseline;justify-content:space-between;padding:6px 20px 12px;flex:none">' +
-          '<div style="font-size:18px;letter-spacing:-0.4px;font-weight:400;color:#ffffff">los <span style="font-weight:600">ZonderPan</span> de Peniche</div>' +
+          '<div>' +
+            '<div style="font-size:18px;letter-spacing:-0.4px;font-weight:400;color:#ffffff">los <span style="font-weight:600">ZonderPan</span> de Peniche</div>' +
+            '<div style="font-size:9.5px;font-weight:300;letter-spacing:.3px;color:rgba(255,255,255,.3);margin-top:3px">Powered by NataSam</div>' +
+          '</div>' +
           '<div style="font-size:10px;font-weight:400;letter-spacing:1px;text-transform:uppercase;color:rgba(255,255,255,.42)">' + esc(vm.weekLabel) + '</div>' +
         '</div>';
 
@@ -521,6 +621,7 @@
 
       const body = vm.isParticipant ? this.renderParticipant(vm)
         : vm.isStrategy ? this.renderStrategy(vm)
+        : vm.isExercises ? this.renderExercises(vm)
         : this.renderProjection(vm);
 
       const nav = this.renderNav(vm);
@@ -543,8 +644,8 @@
 
       const sel = vm.sel;
       const bars = sel.bars.map((b) =>
-        '<div style="flex:1;display:flex;flex-direction:column;align-items:center;gap:6px;justify-content:flex-end;height:100%">' +
-          '<div style="' + css(b.style) + '"></div>' +
+        '<div style="flex:1;min-width:0;display:flex;flex-direction:column;align-items:center;gap:6px;justify-content:flex-end;height:100%">' +
+          '<div style="' + css(b.style) + '">' + b.kgStr + '</div>' +
           '<div style="' + css(b.labelStyle) + '">' + b.week + '</div>' +
         '</div>'
       ).join('');
@@ -607,7 +708,7 @@
 
           '<div style="border:1px solid rgba(255,255,255,.08);border-radius:12px;padding:14px 16px">' +
             '<div style="font-size:10px;font-weight:400;letter-spacing:1px;text-transform:uppercase;color:rgba(255,255,255,.42)">Weekly entries</div>' +
-            '<div style="display:flex;gap:6px;margin-top:12px;align-items:flex-end;height:56px">' + bars + '</div>' +
+            '<div style="display:flex;gap:6px;margin-top:12px;align-items:flex-end;height:92px">' + bars + '</div>' +
           '</div>' +
 
           '<div style="display:flex;align-items:flex-start;gap:10px">' +
@@ -713,6 +814,63 @@
       );
     }
 
+    renderExercises(vm) {
+      const check = (size) =>
+        '<svg viewBox="0 0 24 24" style="width:' + size + 'px;height:' + size + 'px" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' +
+          '<path d="M4.5 12.5l5 5 10-11"></path>' +
+        '</svg>';
+
+      const cols = (list, size) => list.map((c) =>
+        '<div style="flex:1;min-width:0;display:flex;flex-direction:column;align-items:center;gap:5px;height:100%">' +
+          '<div style="' + css(c.slotStyle) + '">' +
+            (c.done
+              ? '<div style="' + css(c.doneStyle) + '">' + check(size) + (c.doneLabel ? '<span>' + c.doneLabel + '</span>' : '') + '</div>'
+              : '<div style="' + css(c.barStyle) + '">' + c.label + '</div>') +
+          '</div>' +
+          '<div style="' + css(c.wkStyle) + '">' + c.week + '</div>' +
+        '</div>'
+      ).join('');
+
+      const legendItem = (swatch, label) =>
+        '<div style="display:flex;align-items:center;gap:6px;font-size:10px;color:rgba(255,255,255,.4)">' + swatch + label + '</div>';
+
+      const cards = vm.people.map((p) =>
+        '<div style="background:#ffffff;border-radius:12px;padding:16px;color:#111827;box-shadow:rgba(15,23,42,.08) 0 8px 24px, rgba(15,23,42,.04) 0 2px 6px">' +
+          '<div style="display:flex;align-items:center;gap:8px">' +
+            '<span style="' + css(p.dotStyle) + '"></span>' +
+            '<span style="font-size:15px;font-weight:300;letter-spacing:-0.2px">' + esc(p.name) + '</span>' +
+            '<span style="margin-left:auto;font-size:10px;font-weight:400;letter-spacing:1px;text-transform:uppercase;color:#6b7280">' + esc(p.exWeekLine) + '</span>' +
+          '</div>' +
+          '<div style="display:flex;align-items:baseline;justify-content:space-between;margin-top:16px">' +
+            '<div style="font-size:10px;font-weight:400;letter-spacing:1px;text-transform:uppercase;color:#6b7280">Flexibility · daily</div>' +
+            "<div style=\"font-size:10px;color:#6b7280;font-feature-settings:'tnum'\">" + esc(p.flexDoneLine) + '</div>' +
+          '</div>' +
+          '<div style="display:flex;gap:6px;margin-top:8px;height:62px">' + cols(p.flex, 12) + '</div>' +
+          '<div style="display:flex;align-items:baseline;justify-content:space-between;margin-top:18px">' +
+            '<div style="font-size:10px;font-weight:400;letter-spacing:1px;text-transform:uppercase;color:#6b7280">Strength · 3× a week, 10 reps</div>' +
+            "<div style=\"font-size:10px;color:#6b7280;font-feature-settings:'tnum'\">" + esc(p.strenDoneLine) + '</div>' +
+          '</div>' +
+          '<div style="display:flex;gap:6px;margin-top:8px;height:62px">' + cols(p.stren, 11) + '</div>' +
+          '<div style="font-size:9.5px;line-height:1.5;color:#94a3b8;margin-top:10px">Numbers are the series expected that week.</div>' +
+        '</div>'
+      ).join('');
+
+      return (
+        '<div style="display:flex;flex-direction:column;gap:12px">' +
+          '<div style="padding:2px 0 0">' +
+            '<div style="font-size:22px;font-weight:300;letter-spacing:-0.5px">Exercises</div>' +
+            '<div style="font-size:11.5px;line-height:1.5;color:rgba(255,255,255,.5);margin-top:4px;max-width:310px">' + esc(vm.exIntro) + '</div>' +
+          '</div>' +
+          cards +
+          '<div style="display:flex;gap:14px;flex-wrap:wrap;padding:0 2px">' +
+            legendItem('<span style="width:12px;height:10px;border-radius:2px;background:#ccfbf1;display:inline-block"></span>', 'done') +
+            legendItem('<span style="width:12px;height:10px;border-radius:2px;background:rgba(255,255,255,.5);display:inline-block"></span>', 'missed week') +
+            legendItem('<span style="width:12px;height:10px;border-radius:2px;border:1px dashed rgba(255,255,255,.4);display:inline-block"></span>', 'open') +
+          '</div>' +
+        '</div>'
+      );
+    }
+
     renderNav(vm) {
       const navStyle = (on) => css({
         display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 5, padding: '8px 4px 10px',
@@ -720,7 +878,7 @@
         color: on ? '#2dd4bf' : 'rgba(255,255,255,.4)', transition: 'color 160ms ease'
       });
       return (
-        '<div style="flex:none;display:grid;grid-template-columns:1fr 1fr 1fr;gap:2px;border-top:1px solid rgba(255,255,255,.08);padding:8px 8px max(20px, env(safe-area-inset-bottom));background:#0f172a">' +
+        '<div style="flex:none;display:grid;grid-template-columns:1fr 1fr 1fr 1fr;gap:2px;border-top:1px solid rgba(255,255,255,.08);padding:8px 8px max(20px, env(safe-area-inset-bottom));background:#0f172a">' +
           '<button data-action="goto" data-tab="participant" style="' + navStyle(vm.isParticipant) + '">' +
             '<svg viewBox="0 0 24 24" style="width:22px;height:22px" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' +
               '<circle cx="12" cy="8.2" r="3.6"></circle>' +
@@ -734,6 +892,16 @@
               '<circle cx="5" cy="3.4" r="1.1" fill="currentColor" stroke="none"></circle>' +
             '</svg>' +
             '<span style="font-size:9.5px;font-weight:400;letter-spacing:.5px">Strategy</span>' +
+          '</button>' +
+          '<button data-action="goto" data-tab="exercises" style="' + navStyle(vm.isExercises) + '">' +
+            '<svg viewBox="0 0 24 24" style="width:22px;height:22px" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' +
+              '<path d="M4 9.5v5"></path>' +
+              '<path d="M20 9.5v5"></path>' +
+              '<path d="M6.8 7v10"></path>' +
+              '<path d="M17.2 7v10"></path>' +
+              '<path d="M6.8 12h10.4"></path>' +
+            '</svg>' +
+            '<span style="font-size:9.5px;font-weight:400;letter-spacing:.5px">Exercises</span>' +
           '</button>' +
           '<button data-action="goto" data-tab="projection" style="' + navStyle(vm.isProjection) + '">' +
             '<svg viewBox="0 0 24 24" style="width:22px;height:22px" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' +
